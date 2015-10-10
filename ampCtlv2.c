@@ -22,19 +22,23 @@
 
 
 struct gpio {
-	int pin;
-	int fd;
-	void *userData;
-	void (* callback)(void *usrData);
+	int 	pin;
+	int 	fd;
+	char 	value;
+	void 	*userData;
+	void 	(* callback)(void *usrData);
 };
  
 struct amp {
-	struct gpio button;
-	struct gpio mute;
-	struct gpio off;
-	struct timeval start;
-	struct timeval prev;
-	struct timeval cur;
+	struct gpio 	button;
+	struct gpio 	mute;
+	struct gpio 	off;
+	struct timeval 	start;
+	struct timeval 	prev;
+	struct timeval 	cur;
+	boolean		init;
+	int 		stateAmp;
+	int		stateMute;
 };
 
 /****************************************************************
@@ -223,18 +227,52 @@ int delay(struct timeval *p, struct timeval *n) {
 	return (res);
 }
 
-void ampState(int s, int gpio) {
+void ampState(struct amp *ampCtl, int state) {
 	printf("Amp changing to : %d\n", s);
+	
+	ampCtl->stateAmp = state;
 }
 
-void ampMute (int s, int gpio) {
+void ampMute (struct amp *ampCtl, int state) {
 	printf("Mute changing to : %d\n", s);
+	
+	ampCtl->stateMute = state;
 }
 
 
 void readButtonCallback(void *userData) {
+	
+	struct amp *ampCtl = (struct amp *)userData;
+	
 	printf("Appel de la callback\n");
+	
+	recordEventTime(&ampCtl->prev, &ampCtl->cur);
+	if (ampCtl->init) {						/* Still in the init phase ? */
+		if (delay(&ampCtl->start, &ampCtl->cur) < AMP_INIT_TIMEOUT) continue;
+		ampCtl->init = false;
+	}
+	
+	if (delay(&ampCtl->prev, &ampCtl->cur) < AMP_DEBOUNCE) continue;	/* Debouncing the switch */
 
+       	if (ampCtl->button.value == '1') {  					/* The button has been pressed */
+        	if (ampCtl->stateAmp == 0) { 					/* Amp is currently off -> switch on */
+			ampState(ampCtl, 1);
+			ampMute(ampCtl, 0);
+              	}
+              	else { 					/* Amp is currently on :  mute  - unmute and or switch off */
+			ampMute(ampCtl, !ampCtl->stateMute);
+             	}
+       }
+     	else { 									/* The button has been released */
+		if (ampCtl->stateMute == 0) continue; 				/* switch off has not been already triggered */
+
+              	if (ampCtl->stateAmp == 1) { 					/* Amp is on then switch off if the button has been pressed long enough */
+			if (delay(&ampCtl->prev, &ampCtl->cur) < AMP_POLL_TIMEOUT) continue;	/* If the button has been pressed a short time*/
+                        else {
+                		ampState(ampCtl, 0);
+                   	}
+              	}
+     	}
 }
 
 static void *interruptHandler (void *arg){
@@ -254,7 +292,7 @@ static void *interruptHandler (void *arg){
 		rc = poll(&fdset, 1, -1);      
 		if (rc < 1) exit(-1);
 
-		(void)read (g->fd, &c, 1) ;
+		(void)read (g->fd, &g->value, 1) ;
 
 		g->callback(g->userData);
 	}
@@ -314,6 +352,7 @@ int main(int argc, char **argv, char **envp)
 
 	recordEventTime(&ampCtl.prev, &ampCtl.cur);
 	recordEventTime(&ampCtl.start, &ampCtl.cur);
+	ampCtl.init = true;
 
 	ampCtl.button.pin = atoi(argv[1]);
 	pthread_t task = readGpio(&ampCtl.button, readButtonCallback, &ampCtl);
