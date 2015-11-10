@@ -1,2 +1,0 @@
- gcc -I/usr/include/glib-2.0 -I/usr/lib/glib-2.0/include gkey.c -o gkey -L/usr/lib -lm -lglib-2.0
-
