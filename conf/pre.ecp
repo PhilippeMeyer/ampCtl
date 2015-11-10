@@ -1,0 +1,2 @@
+# /etc/ampCtl/pre.ecp
+pre = -el:RTparaeq,+18,47,8 -el:RTparaeq,-3,110,1,6 -el:RTparaeq,+6,177,10 -el:RTparaeq,+4,5000,3 -el:RTparaeq,-2,8494,1.7 -el:RTparaeq,-8.0,12438,1.34 

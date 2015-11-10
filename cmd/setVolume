@@ -1,0 +1,15 @@
+#!/bin/bash
+#
+# Script to set up the volume on the usb sound cards
+# Parameter is the volume to be set (between 0 and 110 for my cards)
+# If no parameter is given, the current volume is displayed.
+#
+if [ "$#" == 0 ] 
+then
+	amixer -c 3 scontents
+	amixer -c 4 scontents
+	exit
+fi
+
+amixer -c 3 cset numid=4 $1
+amixer -c 4 cset numid=4 $1

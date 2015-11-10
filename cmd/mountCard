@@ -1,0 +1,2 @@
+#! /bin/bash
+mount -t exfat  /dev/mmcblk0p1 /media/music

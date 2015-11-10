@@ -1,0 +1,2 @@
+# /etc/ampCtl/woofer.ecp
+woofer = -el:RTlr4lowpass,5000

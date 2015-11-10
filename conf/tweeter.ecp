@@ -1,0 +1,5 @@
+#  /etc/ampCtl/tweeter.ecp
+tweeter = -el:RTlr4hipass,5000
+#tweeter = -el:RTlr4hipass,5000 -el:delay_0.01s,0.0019,1
+#tweeter = -el:delay_0.01s,0.0019,1
+#tweeter = -el:RThighpass,5000,1.4

@@ -1,0 +1,9 @@
+#! /bin/bash
+while [[ $# > 0 ]]
+do
+	ecasound -x -z:nodb -b:1024 -z:mixmode,sum \
+	-a:pre -f:s32_le,2,44100 -pf:/etc/ampCtl/pre.ecp -i:/media/music/sine/genTone$1.wav -o:loop,1 \
+ 	-a:woofer,tweeter -i:loop,1 -a:woofer -pf:/etc/ampCtl/woofer.ecp -f:16,2,44100 -o:alsa,sysdefault:CARD=Audio \
+	-a:tweeter -pf:/etc/ampCtl/tweeter.ecp -f:16,2,44100 -o:alsa,sysdefault:CARD=Audio_1
+shift
+done

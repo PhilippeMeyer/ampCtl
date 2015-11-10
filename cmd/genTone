@@ -1,0 +1,6 @@
+#!/bin/bash
+while [[ $# > 0 ]]
+do
+ecasound -i:tone,sine,$1,10 -o:genTone$1.wav
+shift # past argument or value
+done

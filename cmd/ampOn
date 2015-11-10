@@ -1,0 +1,8 @@
+#/etc/bin/bash
+cd /sys/class/gpio
+echo 75 > export
+echo 91 > export
+echo out > gpio75/direction
+echo out > gpio91/direction
+echo 1 > gpio75/value
+echo 1 > gpio91/value
