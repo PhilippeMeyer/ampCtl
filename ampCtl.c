@@ -30,10 +30,10 @@
  ****************************************************************/
  
 #define AMP_SYSFS_GPIO_DIR 			"/sys/class/gpio"
-#define AMP_OFF_TIMEOUT 			1500000  	/*  1.5 seconds 	*/
+#define AMP_OFF_CLICK_TIMEOUT 		1000000  	/*  1.0 seconds 	*/
 #define AMP_PAUSE_TIMEOUT_DELAY		300  		/*  5 minutes 		*/
 #define AMP_DRIVER_PROTECT_DELAY 	1500000		/*  1.5 seconds 	*/
-#define AMP_DEBOUNCE 				300000 		/*  0.3 seconds 	*/
+#define AMP_DEBOUNCE 				30000 		/*  0.03 seconds 	*/
 #define AMP_READ_GPIO 				3			/* 3 GPIOs are read : switch encoderA and encoderB */
 #define AMP_DEF_CONFIG_FILE			"ampCtl.conf"
 #define AMP_SWITCH_ON				1
@@ -66,6 +66,7 @@ struct amp {
 	struct timeval 			prev;
 	struct timeval 			cur;
 	bool					init;
+	bool					pressed;
 	int 					stateAmp;
 	int						stateMute;
 	struct mpd_connection 	*connMpd;
@@ -296,14 +297,28 @@ void readEncoderCallback(void *userData) {
 	processEvent(ampCtl, AMP_SWITCH_VOL, inc);
 }
 
+static void *longPressSensor (void *arg){
+	struct amp 		*ampCtl = (struct amp *) arg;
+
+	usleep(AMP_OFF_CLICK_TIMEOUT);
+	logDebug("Long press detected");
+	if ((ampCtl->pressed) && (ampCtl->stateAmp)) {
+		ampCtl->pressed = false;
+		processEvent(ampCtl, AMP_SWITCH_OFF, 0);
+	}
+	return 0;
+}
+
 void readButtonCallback(void *userData) {
 		struct amp 		*ampCtl = (struct amp *)userData;
 		struct timeval 	current;
+		pthread_t		threadId;
 	
 	gettimeofday(&current, NULL);
-	//recordEventTime(&ampCtl->prev, &ampCtl->cur);
 
+		
 	if (ampCtl->init) {												/* Still in the init phase ? */
+		ampCtl->pressed = false;
 		ampCtl->init = false;
 		return;
 	}
@@ -313,6 +328,12 @@ void readButtonCallback(void *userData) {
 	storeEventTime(ampCtl, &current);
 	
 	if (ampCtl->button.value == '0') {							/* The button has been pressed  0 to the ground*/
+		if (!ampCtl->pressed) {
+			ampCtl->pressed = true;
+			int task = pthread_create (&threadId, NULL, longPressSensor, ampCtl);	/* Detect long press */
+			if(task) logError("Error creating longPress sensor thread. Error : %i", task);
+		}
+		
 		if (ampCtl->stateAmp == 0) { 							/* Amp is currently off -> switch on */
 			processEvent(ampCtl, AMP_SWITCH_ON, 0);
 		}
@@ -321,10 +342,9 @@ void readButtonCallback(void *userData) {
 			else processEvent(ampCtl, AMP_SWITCH_MUTE_ON, 0);
 		}
 	}
-	else { 			/* The button has been released */
-		if (delay(&ampCtl->prev, &ampCtl->cur) < AMP_OFF_TIMEOUT) return; 	/* If the button has been pressed a short time nothing else to do*/
-		else if (ampCtl->stateAmp == AMP_ON) processEvent(ampCtl, AMP_SWITCH_OFF, 0);				/* Long press on switch -> turn off amplifier */
-	}
+	else
+		ampCtl->pressed = false; 					/* The button has been released */
+		pthread_cancel(threadId);
 }
 
 static void *mpdHandler (void *arg){
@@ -410,8 +430,23 @@ void gpioInit(struct amp *ampCtl, struct gpio *g, int direction, char *edge) {
 }
 
 void help() {
-		printf("Usage: ampCtl -v(erbose) -d(debug) -h(help) -c: config_file\n");
-		printf("Manages switches and rotary encoder to control Hypex Amp\n");
+		printf("\nUsage: ampCtl -v(erbose) -d(debug) -h(help) -c(config): config_file -l(logfile): log_file \n");
+		printf("Manages switches and rotary encoder to control Hypex Amp\n\n");
+		printf("-v	: Informational messages\n");
+		printf("-d	: Debug messages\n");
+		printf("-h	: This message\n");
+		printf("-l	: specify a log file (default : ampCtl.log)\n");
+		printf("-c	: specify a configuration file (default : ampCtl.conf)\n\n");
+		printf("The config file may contain the following informations :\n");
+		printf("button\t\t: gpio port where the switch is connected\t\t\tRequired\n");
+		printf("encoderA\t: gpio port where the first encoder input is connected\t\tRequired\n");
+		printf("encoderB\t: gpio port where the second encoder input is connected\t\tRequired\n");
+		printf("switch\t\t: gpio port where the switch on relay is connected\t\tRequired\n");
+		printf("mute\t\t: gpio port where the mute relay is connected\t\t\tRequired\n");
+		printf("pauseTimeout\t: timeout switching off when left in mute mode\t\t\t%i mn\n", AMP_PAUSE_TIMEOUT_DELAY / 60);
+		printf("driverProtect\t: timeout unmuting after switch on\t\t\t\t%f s\n", AMP_DRIVER_PROTECT_DELAY / 10000000.0);
+		printf("gpioPath\t: path to the gpios in the unix user space\t\t\t/sys/class/gpio\n");
+		printf("logFile\t\t: path to the log file\t\t\t\t\t\tampCtl.conf\n\n");
 		exit(-1);
 }
 
@@ -460,7 +495,7 @@ int main(int argc, char **argv, char **envp)
 
 	while (1)
     {
-		c = getopt_long (argc, argv, "c:dl:v", long_options, &option_index);
+		c = getopt_long (argc, argv, "c:dhl:v", long_options, &option_index);
 
 		if (c == -1) break;			/* End of the options */
 
