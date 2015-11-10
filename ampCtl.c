@@ -33,7 +33,7 @@
 #define AMP_OFF_CLICK_TIMEOUT 		1000000  	/*  1.0 seconds 	*/
 #define AMP_PAUSE_TIMEOUT_DELAY		300  		/*  5 minutes 		*/
 #define AMP_DRIVER_PROTECT_DELAY 	1500000		/*  1.5 seconds 	*/
-#define AMP_DEBOUNCE 				30000 		/*  0.03 seconds 	*/
+#define AMP_DEBOUNCE 				300000 		/*  0.3 seconds 	*/
 #define AMP_READ_GPIO 				3			/* 3 GPIOs are read : switch encoderA and encoderB */
 #define AMP_DEF_CONFIG_FILE			"ampCtl.conf"
 #define AMP_SWITCH_ON				1
