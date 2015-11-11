@@ -33,7 +33,7 @@
 #define AMP_OFF_CLICK_TIMEOUT 		1000000  	/*  1.0 seconds 	*/
 #define AMP_PAUSE_TIMEOUT_DELAY		300  		/*  5 minutes 		*/
 #define AMP_DRIVER_PROTECT_DELAY 	1500000		/*  1.5 seconds 	*/
-#define AMP_DEBOUNCE 				300000 		/*  0.3 seconds 	*/
+#define AMP_DEBOUNCE 				50000 		/*  0.05 seconds 	*/
 #define AMP_READ_GPIO 				3			/* 3 GPIOs are read : switch encoderA and encoderB */
 #define AMP_DEF_CONFIG_FILE			"ampCtl.conf"
 #define AMP_SWITCH_ON				1
@@ -78,6 +78,7 @@ struct amp {
 	int						event;
 	bool					muteOngoing;
 	pthread_t				pauseThread;
+	pthread_t				longPressedThread;
 };
 
 static void *pauseTimeout (void *arg);
@@ -306,13 +307,15 @@ static void *longPressSensor (void *arg){
 		ampCtl->pressed = false;
 		processEvent(ampCtl, AMP_SWITCH_OFF, 0);
 	}
+	else
+		ampCtl->pressed = false;
+	
 	return 0;
 }
 
 void readButtonCallback(void *userData) {
 		struct amp 		*ampCtl = (struct amp *)userData;
 		struct timeval 	current;
-		pthread_t		threadId;
 	
 	gettimeofday(&current, NULL);
 
@@ -322,15 +325,17 @@ void readButtonCallback(void *userData) {
 		ampCtl->init = false;
 		return;
 	}
-	
+	logDebug("Switch button pressed. Value %i Pressed : %i", ampCtl->button.value, ampCtl->pressed);
+
 	if (delay(&ampCtl->cur, &current) < AMP_DEBOUNCE) return;		/* Debouncing the switch */
 
 	storeEventTime(ampCtl, &current);
-	
+
 	if (ampCtl->button.value == '0') {							/* The button has been pressed  0 to the ground*/
 		if (!ampCtl->pressed) {
 			ampCtl->pressed = true;
-			int task = pthread_create (&threadId, NULL, longPressSensor, ampCtl);	/* Detect long press */
+			int task = pthread_create(&ampCtl->longPressedThread, NULL, longPressSensor, ampCtl);	/* Detect long press */
+			logDebug("longPressed thread detection created");
 			if(task) logError("Error creating longPress sensor thread. Error : %i", task);
 		}
 		
@@ -342,9 +347,11 @@ void readButtonCallback(void *userData) {
 			else processEvent(ampCtl, AMP_SWITCH_MUTE_ON, 0);
 		}
 	}
-	else
+	else {
+		logDebug("Switch button released");
 		ampCtl->pressed = false; 					/* The button has been released */
-		pthread_cancel(threadId);
+		pthread_cancel(ampCtl->longPressedThread);
+	}
 }
 
 static void *mpdHandler (void *arg){
