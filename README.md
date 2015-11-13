@@ -64,6 +64,7 @@ pauseTimeout|the timeout before the amplifier switches off when left in mute mod
 driverProtect |the timeout before unmuting the amplifier after switch on to protect the drivers|1.5 s
 gpioPath |path to the gpios in the unix user space|/sys/class/gpio
 logFile |path to the log file|ampCtl.conf
+mpdCmd |Command to restart mpd|service mpd restart
 
 Additionally ampCtl supports some command switches:
 
