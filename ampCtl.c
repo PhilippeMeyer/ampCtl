@@ -132,7 +132,6 @@ int main(int argc, char **argv, char **envp)
 	  {"help",    no_argument,       0, 'h'},	  
 	  {"config",  required_argument, 0, 'c'},
 	  {"logfile", required_argument, 0, 'l'},
-	  {"mpdCmd",  required_argument, 0, 'l'},
 	  {0, 0, 0, 0}
 	};
 
@@ -147,6 +146,7 @@ int main(int argc, char **argv, char **envp)
         CFG_SIMPLE_INT("driverProtect", &ampCtl.driverProtect),
 		CFG_SIMPLE_STR("gpioPath", 		ampCtl.gpioPath),
 		CFG_SIMPLE_STR("logFile", 		ampCtl.logFile),
+		CFG_SIMPLE_STR("mpdCmd", 		ampCtl.mpdCmd),
         CFG_END()
     };
     cfg_t *cfg;
