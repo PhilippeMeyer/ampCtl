@@ -1,7 +1,7 @@
 #ampCtl
 ##Control for an Hypex amplifier
 
-The aim of this piece of software is to control a music server build around a Wandboard and an [Hypex UcD36](http://www.hypex.nl/docs/UcD3xMP_Datasheet.pdf) for the hardware part, [MPD](http://www.musicpd.org/) and ecasound for the software part.
+The aim of this piece of software is to control a music server build around a [Wandboard](http://www.wandboard.org/) and an [Hypex UcD36](http://www.hypex.nl/docs/UcD3xMP_Datasheet.pdf) for the hardware part, [MPD](http://www.musicpd.org/) and [ecasound](http://ecasound.seul.org/ecasound/) for the software part.
 
 ###Setup Overview
 This setup is enabling multi amplification : the UcD36 is coming with three separate amplifiers for bass, medium and tweeter. 
