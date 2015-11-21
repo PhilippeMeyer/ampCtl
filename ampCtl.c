@@ -36,6 +36,7 @@
 #define AMP_PAUSE_TIMEOUT_DELAY		300  		/*  5 minutes 		*/
 #define AMP_DRIVER_PROTECT_DELAY 	1500000		/*  1.5 seconds 	*/
 #define AMP_DEBOUNCE 				50000 		/*  0.05 seconds 	*/
+#define AMP_DOUBLE_CLICK_DELAY		300000 		/*  0.3 seconds 	*/
 #define AMP_READ_GPIO 				3			/* 3 GPIOs are read : switch encoderA and encoderB */
 #define AMP_DEF_CONFIG_FILE			"ampCtl.conf"
 #define AMP_MPD_CMD					"service mpd restart"
@@ -50,6 +51,7 @@
 #define AMP_PAUSE_TIMEOUT			256
 #define	AMP_DRIVER_PROTECT			512
 #define AMP_SWITCH_LONG_PRESSED		1024
+#define AMP_DOUBLE_CLICK			2048
 #define AMP_MPD_NB_CNX_ATTEMPT		5
 #define	AMP_MPD_CNX_TIMEOUT			2			/* 2 seconds 		*/
 
@@ -67,6 +69,7 @@ struct amp {									//Structure containing the full amplifier status
 	struct gpio 			off;				//On-Off relay
 	struct gpio				encoderA;			//Encoder 1st input
 	struct gpio				encoderB;			//Encoder 2nd input
+	struct timeval 			pprev;				//Time of the previous previous event
 	struct timeval 			prev;				//Time of the previous event
 	struct timeval 			cur;				//Time of the current event
 	bool					init;				//Is init completed ?
@@ -84,6 +87,7 @@ struct amp {									//Structure containing the full amplifier status
 	bool					muteOngoing;		//Is a mute on going ?
 	pthread_t				pauseThread;		//Pause thread ID
 	pthread_t				longPressedThread;	//LongPressed thread ID
+	pthread_t				doubleClickThread;	//LongPressed thread ID
 };
 
 static void *pauseTimeout (void *arg);
@@ -93,7 +97,7 @@ void 		handleMPDerror(struct mpd_connection *c);
 void 		processEvent(struct amp *ampCtl, int evt, int inc);
 void 		help();
 void 		closeGpios(struct amp *ampCtl);
-void 		recordEventTime(struct timeval *p, struct timeval *n);
+void 		initTime(struct amp *p);
 void 		storeEventTime(struct amp *a, struct timeval *t);
 int 		delay(struct timeval *p, struct timeval *n);
 static void *pauseTimeout (void *arg);
@@ -240,8 +244,7 @@ int main(int argc, char **argv, char **envp)
 		gpioInit(&ampCtl, &ampCtl.encoderB, GPIO_READ, "both");	//Second rotary encoder entry
 		ampCtl.encoderB.callback = &readEncoderCallback;
 		
-		recordEventTime(&ampCtl.prev, &ampCtl.cur);				//Init the variables to store the time
-		recordEventTime(&ampCtl.prev, &ampCtl.cur);				//Used to debounce the switch 
+		initTime(&ampCtl);										//Init the variables to store the time
 		ampCtl.init = true;
 		ampCtl.muteOngoing = false;								//Reflects if the amplifier is on mute 
 
@@ -458,9 +461,10 @@ void processEvent(struct amp *ampCtl, int evt, int inc) {
 	}
 	if (evt & AMP_SWITCH_VOL) {
 		logDebug("Process Event Switch volume");
-		if(!ampCtl->stateAmp) return;				/* Amp is off. No change in volume */
-		if(! execCmdMpd((bool (*)())mpd_run_change_volume, ampCtl, 1, inc))
+		if(ampCtl->stateAmp) {				/* Amp is off. No change in volume */
+			if(! execCmdMpd((bool (*)())mpd_run_change_volume, ampCtl, 1, inc))
 				logError("Error connecting to MPD : %s", mpd_connection_get_error_message(ampCtl->connMpd));
+		}
 	}
 	if (evt & AMP_MPD_PLAY) {
 		logDebug("Process Event MPD Play");
@@ -497,6 +501,13 @@ void processEvent(struct amp *ampCtl, int evt, int inc) {
 		logDebug("Process Event Long Pressed");
 		if (ampCtl->stateAmp) processEventSwitchOff(ampCtl);
 	}
+	if (evt & AMP_DOUBLE_CLICK) {
+		logDebug("Double Click Event");
+		if (ampCtl->stateAmp) {
+			if(! execCmdMpd((bool (*)())mpd_run_next, ampCtl, 0, 0))
+				logError("Error connecting to MPD : %s", mpd_connection_get_error_message(ampCtl->connMpd));
+		}
+	}
 	
 	pthread_mutex_unlock(&mutexProcess);
 }
@@ -511,27 +522,26 @@ void closeGpios(struct amp *ampCtl) {
 }
 
 
-//recordEventTime transferts what is going to be the previous value
-//and stores the current time in the current value
-//p is the variable where the previous value is stored
-//n is the variable where the current 'next value is stored)
-void recordEventTime(struct timeval *p, struct timeval *n) {
-
-	p->tv_sec = n->tv_sec;
-	p->tv_usec = n->tv_usec;
-
-	gettimeofday(n, NULL);
-}
-
 //storeEventTime transfers the current time into the previous time
 //a is a pointer on the amplifier status structure
 //t is the new current time 
 void storeEventTime(struct amp *a, struct timeval *t) {
 
+	a->pprev.tv_sec = a->prev.tv_sec;
+	a->pprev.tv_usec = a->prev.tv_usec;
 	a->prev.tv_sec = a->cur.tv_sec;
 	a->prev.tv_usec = a->cur.tv_usec;
 	a->cur.tv_sec = t->tv_sec;
 	a->cur.tv_usec = t->tv_usec;
+}
+
+// Init the three time info variables that monitor clicks and double clicks
+void initTime(struct amp *a) {
+	gettimeofday(&a->cur, NULL);
+	a->prev.tv_sec = a->cur.tv_sec;
+	a->prev.tv_usec = a->cur.tv_usec;
+	a->pprev.tv_sec = a->prev.tv_sec;
+	a->pprev.tv_usec = a->prev.tv_usec;
 }
 
 //delay return the difference in micro seconds between two times
@@ -700,12 +710,30 @@ static void *longPressSensor (void *arg){
 	return 0;
 }
 
+//Routine for sensing double click on the switch button
+//When the user presses the switch button this thread is triggered
+//If no double click occurs then it was a simple click
+//userData : pointer to the amplifier control structure
+static void *doubleClickSensor (void *arg){
+	struct amp 		*ampCtl = (struct amp *) arg;
+
+	usleep(AMP_DOUBLE_CLICK_DELAY);		//Waiting for a double click before taking action
+	logDebug("No double click detected");
+	
+	//Mute or unmute the amplifier
+	if(ampCtl->stateMute == AMP_MUTE) processEvent(ampCtl, AMP_SWITCH_MUTE_OFF, 0);
+	else processEvent(ampCtl, AMP_SWITCH_MUTE_ON, 0);
+
+	return 0;
+}
+
 //Callback routine for the switch events.
 //This routine debounces the switch and generates the appropriate events
 //userData : pointer to the amplifier control structure
 void readButtonCallback(void *userData) {
 		struct amp 		*ampCtl = (struct amp *)userData;
 		struct timeval 	current;
+		int task;
 	
 	gettimeofday(&current, NULL);
 
@@ -724,7 +752,7 @@ void readButtonCallback(void *userData) {
 	if (ampCtl->button.value == '0') {								// The button has been pressed  0 to the ground
 		if (!ampCtl->pressed) {										// Normally when here the pressed flag should be false as it is reset 
 			ampCtl->pressed = true;									// when the switch is released. Set pressed to true as long as the button is pressed
-			int task = pthread_create(&ampCtl->longPressedThread, NULL, longPressSensor, ampCtl);	// Separate thread to sense the long pressed
+			task = pthread_create(&ampCtl->longPressedThread, NULL, longPressSensor, ampCtl);	// Separate thread to sense the long pressed
 			logDebug("longPressed thread detection created");
 			if(task) logError("Error creating longPress sensor thread. Error : %i", task);
 		}
@@ -732,9 +760,16 @@ void readButtonCallback(void *userData) {
 		if (ampCtl->stateAmp == 0) { 								// Amp is currently off -> switch on */
 			processEvent(ampCtl, AMP_SWITCH_ON, 0);
 		}
-		else {						// Amp is currently on :  mute  - unmute and or switch off
-			if (ampCtl->stateMute == AMP_MUTE) processEvent(ampCtl, AMP_SWITCH_MUTE_OFF, 0);
-			else processEvent(ampCtl, AMP_SWITCH_MUTE_ON, 0);
+		else {						// Amp is currently on :  mute  - unmute and or switch off or next song if double click
+			if(delay(&ampCtl->pprev, &current) < AMP_DOUBLE_CLICK_DELAY) { 	//It is a double click
+				pthread_cancel(ampCtl->doubleClickThread);
+				processEvent(ampCtl, AMP_DOUBLE_CLICK, 0); 
+			}
+			else {					//Trigger a thread to wait for a double click
+				task = pthread_create(&ampCtl->doubleClickThread, NULL, doubleClickSensor, ampCtl);	// Separate thread to wait for a double click
+				logDebug("doubleClick thread detection created");
+				if(task) logError("Error creating double click sensor thread. Error : %i", task);
+			}
 		}
 	}
 	else {							// The switch is released -> pressed is false and the sensing thread is cancelled
