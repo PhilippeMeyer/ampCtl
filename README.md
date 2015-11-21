@@ -20,6 +20,7 @@ This button is working the following way :
   1. short press when off : switch on the audio
   1. short press when on : mute
   1. short press when on and mute : unmute
+  2. double click : next song
   1. long press : switch off
 
 This is nice but needs to physically move and actionate the button. 
